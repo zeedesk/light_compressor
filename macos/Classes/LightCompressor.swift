@@ -160,7 +160,10 @@ public struct LightCompressor {
             videoWriterInput.expectsMediaDataInRealTime = true
             videoWriterInput.transform = videoTrack.preferredTransform
             
-            let videoWriter = try? AVAssetWriter(outputURL: destination, fileType: AVFileType.mov)
+            // [FORK ZeeDesk] Mesmo patch do ios/Classes/LightCompressor.swift (contêiner ISO-MP4
+            // real + faststart) — o app não tem target macos hoje, mas o fork fica consistente.
+            let videoWriter = try? AVAssetWriter(outputURL: destination, fileType: AVFileType.mp4)
+            videoWriter?.shouldOptimizeForNetworkUse = true
             videoWriter?.add(videoWriterInput)
             
             // Setup video reader output

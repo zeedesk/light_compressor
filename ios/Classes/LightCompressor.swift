@@ -160,7 +160,13 @@ public struct LightCompressor {
             videoWriterInput.expectsMediaDataInRealTime = true
             videoWriterInput.transform = videoTrack.preferredTransform
             
-            let videoWriter = try? AVAssetWriter(outputURL: destination, fileType: AVFileType.mov)
+            // [FORK ZeeDesk] Upstream gravava fileType .mov (contêiner QuickTime) mas o app salva
+            // o arquivo como .mp4 e declara Content-Type video/mp4 — a WhatsApp Cloud API rejeita
+            // esse descompasso com "Media upload error" (Android, que gera ISO-MP4 real, funciona).
+            // .mp4 força contêiner ISO-MP4 de verdade; shouldOptimizeForNetworkUse move o átomo
+            // moov pro início (faststart nativo do AVFoundation). Ver README deste fork.
+            let videoWriter = try? AVAssetWriter(outputURL: destination, fileType: AVFileType.mp4)
+            videoWriter?.shouldOptimizeForNetworkUse = true
             videoWriter?.add(videoWriterInput)
             
             // Setup video reader output

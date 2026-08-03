@@ -1,3 +1,18 @@
+> **Fork ZeeDesk** (molinari-ewandro/light_compressor) — base: upstream `2.2.0`.
+>
+> Patch aplicado em `ios/Classes/LightCompressor.swift` e `macos/Classes/LightCompressor.swift`
+> (procure `[FORK ZeeDesk]`): o `AVAssetWriter` gravava `fileType: .mov` (contêiner QuickTime),
+> mas o app consumidor salva/declara o arquivo como `.mp4`/`video/mp4` em toda a cadeia de upload.
+> A WhatsApp Cloud API rejeitava esse descompasso com o erro "Media upload error" (código Meta
+> 131053) ao enviar vídeo capturado em iOS a clientes WhatsApp — Android não era afetado (gera
+> ISO-MP4 real via outra lib). Corrigido forçando `fileType: .mp4` + `shouldOptimizeForNetworkUse`
+> (faststart nativo). Android **não foi alterado** — funciona sem o patch.
+>
+> Usado no app via `git:` dependency (ref = tag, ex. `v2.2.0-zeedesk.1`) — nunca `path:`/vendoring.
+> Ao atualizar a partir de uma versão nova do upstream: `git remote add upstream
+> https://github.com/AbedElazizShe/light_compressor.git`, `git fetch upstream`, `git rebase
+> upstream/master` (ou merge), reaplicar o patch se o rebase não carregar automaticamente, nova tag.
+
 <p align="left">
 <a href="https://pub.dev/packages/light_compressor"><img src="https://img.shields.io/pub/v/light_compressor.svg" alt="Pub"></a>
 </p>
