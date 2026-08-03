@@ -1,17 +1,34 @@
-> **Fork ZeeDesk** (molinari-ewandro/light_compressor) — base: upstream `2.2.0`.
+> **Fork ZeeDesk** (zeedesk/light_compressor) — base: upstream `2.2.0`.
 >
 > Patch aplicado em `ios/Classes/LightCompressor.swift` e `macos/Classes/LightCompressor.swift`
-> (procure `[FORK ZeeDesk]`): o `AVAssetWriter` gravava `fileType: .mov` (contêiner QuickTime),
-> mas o app consumidor salva/declara o arquivo como `.mp4`/`video/mp4` em toda a cadeia de upload.
-> A WhatsApp Cloud API rejeitava esse descompasso com o erro "Media upload error" (código Meta
-> 131053) ao enviar vídeo capturado em iOS a clientes WhatsApp — Android não era afetado (gera
-> ISO-MP4 real via outra lib). Corrigido forçando `fileType: .mp4` + `shouldOptimizeForNetworkUse`
-> (faststart nativo). Android **não foi alterado** — funciona sem o patch.
+> (procure `[FORK ZeeDesk]`):
 >
-> Usado no app via `git:` dependency (ref = tag, ex. `v2.2.0-zeedesk.1`) — nunca `path:`/vendoring.
-> Ao atualizar a partir de uma versão nova do upstream: `git remote add upstream
-> https://github.com/AbedElazizShe/light_compressor.git`, `git fetch upstream`, `git rebase
-> upstream/master` (ou merge), reaplicar o patch se o rebase não carregar automaticamente, nova tag.
+> **v2.2.0-zeedesk.1** — o `AVAssetWriter` gravava `fileType: .mov` (contêiner QuickTime), mas o
+> app consumidor salva/declara o arquivo como `.mp4`/`video/mp4` em toda a cadeia de upload. A
+> WhatsApp Cloud API rejeitava esse descompasso com "Media upload error" (Meta 131053) ao enviar
+> vídeo capturado em iOS a clientes WhatsApp — Android não era afetado (gera ISO-MP4 real via outra
+> lib). Corrigido forçando `fileType: .mp4` + `shouldOptimizeForNetworkUse` (faststart nativo).
+>
+> **v2.2.0-zeedesk.2** — a mudança acima quebrou a compressão no iOS: a trilha de áudio era escrita
+> em modo *passthrough* (`outputSettings: nil`, sem reencodar), e a Apple documenta explicitamente
+> (header `AVAssetWriterInput.h`) que passthrough só é suportado em `AVFileTypeQuickTimeMovie` —
+> fora disso é preciso um `sourceFormatHint`, ou reencodar. Rodar `.mp4` com áudio em passthrough
+> lançava uma `NSException` do AVFoundation não capturável pelo Swift (`try`/`catch` não pega
+> exceção Objective-C), derrubando o app inteiro (crash, não erro tratado) toda vez que o usuário
+> gravava vídeo pela câmera e a compressão rodava. Corrigido reencodando o áudio explicitamente em
+> AAC (decode com `AVAssetReaderTrackOutput` pedindo Linear PCM → encode com `AVAssetWriterInput`
+> declarando `kAudioFormatMPEG4AAC`, sample rate/canais lidos da trilha de origem, não hardcoded) —
+> mesmo padrão decode→encode que o vídeo já usava. De brinde, corrigido também: (a) `startSession`
+> era chamado duas vezes no mesmo writer (uma pro vídeo, outra pro áudio) sem `endSession` entre
+> elas — fora do contrato documentado pela Apple (uma sessão cobre todos os inputs do writer);
+> removida a segunda chamada; (b) o `timescale` do trim-duration do primeiro buffer de áudio estava
+> fixo em 44100 — trocado pro sample rate real da trilha (evita cálculo errado em fontes 48kHz).
+> Android **não foi tocado em nenhuma das duas versões** — nunca teve esse bug.
+>
+> Usado no app via `git:` dependency (ref = tag). Ao atualizar a partir de uma versão nova do
+> upstream: `git remote add upstream https://github.com/AbedElazizShe/light_compressor.git`,
+> `git fetch upstream`, `git rebase upstream/master` (ou merge), reaplicar os patches se o rebase
+> não carregar automaticamente, nova tag.
 
 <p align="left">
 <a href="https://pub.dev/packages/light_compressor"><img src="https://img.shields.io/pub/v/light_compressor.svg" alt="Pub"></a>

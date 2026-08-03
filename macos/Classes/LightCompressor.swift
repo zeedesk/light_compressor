@@ -182,16 +182,40 @@ public struct LightCompressor {
             }
             
             videoReader?.add(videoReaderOutput)
-            //setup audio writer
-            let audioWriterInput = AVAssetWriterInput(mediaType: AVMediaType.audio, outputSettings: nil)
+
+            // [FORK ZeeDesk] Mesmo fix do ios/Classes/LightCompressor.swift — passthrough de áudio
+            // (outputSettings: nil) só é suportado pela Apple em AVFileTypeQuickTimeMovie; com
+            // fileType .mp4 isso derrubaria o processo (NSException não capturável). Reencoda em
+            // AAC explicitamente. Ver comentário completo na versão iOS.
+            let audioTrack = videoAsset.tracks(withMediaType: AVMediaType.audio).first
+
+            var audioSampleRate: Float64 = 44100
+            var audioChannels: UInt32 = 2
+            if let formatDescriptions = audioTrack?.formatDescriptions as? [CMFormatDescription],
+               let formatDescription = formatDescriptions.first,
+               let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription) {
+                audioSampleRate = asbd.pointee.mSampleRate
+                audioChannels = max(1, asbd.pointee.mChannelsPerFrame)
+            }
+
+            let audioWriterSettings: [String: Any] = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: audioSampleRate,
+                AVNumberOfChannelsKey: audioChannels,
+                AVEncoderBitRateKey: 128000
+            ]
+            let audioWriterInput = AVAssetWriterInput(mediaType: AVMediaType.audio, outputSettings: audioWriterSettings)
             audioWriterInput.expectsMediaDataInRealTime = false
             videoWriter?.add(audioWriterInput)
+
             //setup audio reader
-            let audioTrack = videoAsset.tracks(withMediaType: AVMediaType.audio).first
             var audioReader: AVAssetReader?
             var audioReaderOutput: AVAssetReaderTrackOutput?
             if(audioTrack != nil) {
-                audioReaderOutput = AVAssetReaderTrackOutput(track: audioTrack!, outputSettings: nil)
+                let audioReaderSettings: [String: Any] = [
+                    AVFormatIDKey: kAudioFormatLinearPCM
+                ]
+                audioReaderOutput = AVAssetReaderTrackOutput(track: audioTrack!, outputSettings: audioReaderSettings)
                 audioReader = try? AVAssetReader(asset: videoAsset)
                 audioReader?.add(audioReaderOutput!)
             }
@@ -232,15 +256,16 @@ public struct LightCompressor {
                                 if !(audioReader!.status == .reading) || !(audioReader!.status == .completed) {
                                     //start writing from audio reader
                                     audioReader?.startReading()
-                                    videoWriter?.startSession(atSourceTime: CMTime.zero)
+                                    // [FORK ZeeDesk] NÃO chamar startSession de novo — uma sessão só,
+                                    // já iniciada acima, cobre vídeo e áudio no mesmo writer.
                                     let processingQueue = DispatchQueue(label: "processingQueue2", qos: .background)
-                                    
+
                                     audioWriterInput.requestMediaDataWhenReady(on: processingQueue, using: {
                                         while audioWriterInput.isReadyForMoreMediaData {
                                             let sampleBuffer: CMSampleBuffer? = audioReaderOutput?.copyNextSampleBuffer()
                                             if audioReader?.status == .reading && sampleBuffer != nil {
                                                 if isFirstBuffer {
-                                                    let dict = CMTimeCopyAsDictionary(CMTimeMake(value: 1024, timescale: 44100), allocator: kCFAllocatorDefault);
+                                                    let dict = CMTimeCopyAsDictionary(CMTimeMake(value: 1024, timescale: Int32(audioSampleRate)), allocator: kCFAllocatorDefault);
                                                     CMSetAttachment(sampleBuffer as CMAttachmentBearer, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart, value: dict, attachmentMode: kCMAttachmentMode_ShouldNotPropagate);
                                                     isFirstBuffer = false
                                                 }

@@ -185,16 +185,50 @@ public struct LightCompressor {
             }
             
             videoReader?.add(videoReaderOutput)
-            //setup audio writer
-            let audioWriterInput = AVAssetWriterInput(mediaType: AVMediaType.audio, outputSettings: nil)
+
+            // [FORK ZeeDesk] Passthrough de áudio (outputSettings: nil nos dois lados) só é
+            // suportado pela Apple em AVFileTypeQuickTimeMovie — documentado literalmente no
+            // header AVAssetWriterInput.h: "Passthrough is currently supported only when writing
+            // to QuickTime Movie files... in order to pass through media data to files other than
+            // AVFileTypeQuickTimeMovie, a non-NULL format hint must be provided". Como o fileType
+            // agora é .mp4 (ver acima), manter outputSettings: nil aqui viola esse contrato e
+            // derruba o app com NSException não capturável (SIGABRT) no primeiro append de áudio
+            // real — daí o crash. Fix: decodificar a trilha original (reader pede Linear PCM) e
+            // reencodar explicitamente em AAC (writer) — mesmo padrão "decode->encode" que o vídeo
+            // já usa logo acima (não é mais passthrough, mas é o único caminho formalmente
+            // suportado fora de QuickTime Movie, e elimina qualquer risco de channel-layout/sample-
+            // rate incompatível, não só o caso pontual).
+            let audioTrack = videoAsset.tracks(withMediaType: AVMediaType.audio).first
+
+            var audioSampleRate: Float64 = 44100
+            var audioChannels: UInt32 = 2
+            if let formatDescriptions = audioTrack?.formatDescriptions as? [CMFormatDescription],
+               let formatDescription = formatDescriptions.first,
+               let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription) {
+                audioSampleRate = asbd.pointee.mSampleRate
+                audioChannels = max(1, asbd.pointee.mChannelsPerFrame)
+            }
+
+            let audioWriterSettings: [String: Any] = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: audioSampleRate,
+                AVNumberOfChannelsKey: audioChannels,
+                AVEncoderBitRateKey: 128000
+            ]
+            let audioWriterInput = AVAssetWriterInput(mediaType: AVMediaType.audio, outputSettings: audioWriterSettings)
             audioWriterInput.expectsMediaDataInRealTime = false
             videoWriter?.add(audioWriterInput)
+
             //setup audio reader
-            let audioTrack = videoAsset.tracks(withMediaType: AVMediaType.audio).first
             var audioReader: AVAssetReader?
             var audioReaderOutput: AVAssetReaderTrackOutput?
             if(audioTrack != nil) {
-                audioReaderOutput = AVAssetReaderTrackOutput(track: audioTrack!, outputSettings: nil)
+                // Linear PCM decodificado (não mais nil/compressed passthrough) — é o formato que
+                // o encoder AAC do writer acima espera receber pra reencodar.
+                let audioReaderSettings: [String: Any] = [
+                    AVFormatIDKey: kAudioFormatLinearPCM
+                ]
+                audioReaderOutput = AVAssetReaderTrackOutput(track: audioTrack!, outputSettings: audioReaderSettings)
                 audioReader = try? AVAssetReader(asset: videoAsset)
                 audioReader?.add(audioReaderOutput!)
             }
@@ -235,15 +269,23 @@ public struct LightCompressor {
                                 if !(audioReader!.status == .reading) || !(audioReader!.status == .completed) {
                                     //start writing from audio reader
                                     audioReader?.startReading()
-                                    videoWriter?.startSession(atSourceTime: CMTime.zero)
+                                    // [FORK ZeeDesk] NÃO chamar startSession de novo aqui — só existe
+                                    // UMA sessão de escrita por AVAssetWriter (cobre vídeo E áudio no
+                                    // mesmo writer), já iniciada acima antes do loop de vídeo. Chamar
+                                    // de novo sem endSession entre as duas é fora do contrato
+                                    // documentado pela Apple; o muxer QuickTime tolerava
+                                    // silenciosamente, o muxer MP4 é mais rígido em bookkeeping de
+                                    // sessão e pode rejeitar.
                                     let processingQueue = DispatchQueue(label: "processingQueue2", qos: .background)
-                                    
+
                                     audioWriterInput.requestMediaDataWhenReady(on: processingQueue, using: {
                                         while audioWriterInput.isReadyForMoreMediaData {
                                             let sampleBuffer: CMSampleBuffer? = audioReaderOutput?.copyNextSampleBuffer()
                                             if audioReader?.status == .reading && sampleBuffer != nil {
                                                 if isFirstBuffer {
-                                                    let dict = CMTimeCopyAsDictionary(CMTimeMake(value: 1024, timescale: 44100), allocator: kCFAllocatorDefault);
+                                                    // Timescale real da trilha (era 44100 fixo) — evita
+                                                    // representar a duração de priming errada em fontes 48kHz.
+                                                    let dict = CMTimeCopyAsDictionary(CMTimeMake(value: 1024, timescale: Int32(audioSampleRate)), allocator: kCFAllocatorDefault);
                                                     CMSetAttachment(sampleBuffer as CMAttachmentBearer, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart, value: dict, attachmentMode: kCMAttachmentMode_ShouldNotPropagate);
                                                     isFirstBuffer = false
                                                 }

@@ -1,6 +1,6 @@
 name: light_compressor
 description: A powerful and easy-to-use video compression plugin for Flutter. (ZeeDesk fork — see README)
-version: 2.2.0+zeedesk.1
+version: 2.2.0+zeedesk.2
 repository: https://github.com/zeedesk/light_compressor
 issue_tracker: https://github.com/AbedElazizShe/light_compressor/issues
 homepage: https://github.com/AbedElazizShe
